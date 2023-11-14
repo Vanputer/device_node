@@ -58,79 +58,241 @@ fn main() {
 
     println!("setup pins");
     let peripherals = Peripherals::take().unwrap();
-    let _sys_loop = EspSystemEventLoop::take().unwrap();
-    let _nvs = EspDefaultNvsPartition::take().unwrap();
+    let sys_loop = EspSystemEventLoop::take().unwrap();
+    let nvs = EspDefaultNvsPartition::take().unwrap();
 
-    let light_1 = Arc::new(Mutex::new(Device {
-        name: "bed light".to_string(),
-        action: Action::Off,
-        available_actions: Vec::from([
-            Action::On,
-            Action::Off,
-            Action::Up,
-            Action::Down,
-            Action::Set,
-        ]),
-        default_target: 3,
-        duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
-        target: 0,
-        freq_Hz: 1000,
-    }));
+    let mut wifi_driver = EspWifi::new(peripherals.modem, sys_loop, Some(nvs)).unwrap();
+    wifi_driver
+        .set_configuration(&Configuration::Client(ClientConfiguration {
+            ssid: "ssid".into(),
+            password: "password".into(),
+            ..Default::default()
+        }))
+        .unwrap();
+    wifi_driver.start().unwrap();
+    wifi_driver.connect().unwrap();
+    while !wifi_driver.is_connected().unwrap() {
+        let config = wifi_driver.get_configuration().unwrap();
+        println!("Waiting for station {:?}", config);
+    }
+    println!("Should be connected now");
 
-    let light_1_clone = light_1.clone();
+    let lights = Arc::new(Mutex::new(Vec::from([
+        Device {
+            name: "bedroom light".to_string(),
+            action: Action::Off,
+            available_actions: Vec::from([
+                Action::On,
+                Action::Off,
+                Action::Up,
+                Action::Down,
+                Action::Set,
+            ]),
+            default_target: 3,
+            duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
+            target: 0,
+            freq_Hz: 1000,
+            updated: true,
+        },
+        Device {
+            name: "kitchen light".to_string(),
+            action: Action::Off,
+            available_actions: Vec::from([
+                Action::On,
+                Action::Off,
+                Action::Up,
+                Action::Down,
+                Action::Set,
+            ]),
+            default_target: 3,
+            duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
+            target: 0,
+            freq_Hz: 1000,
+            updated: true,
+        },
+    ])));
+
+    // Update any light devices that need updating (if a knob's turned or anything)
+    let lights_clone = lights.clone();
     thread::spawn(move || {
         println!("setup encoder");
         let mut pin_a_1 = peripherals.pins.gpio5;
         let mut pin_b_1 = peripherals.pins.gpio6;
-        let encoder_1 = Encoder::new(peripherals.pcnt0, &mut pin_a_1, &mut pin_b_1).unwrap();
-
-        let mut last_encoder_value = 0i64;
-        let mut last_encoder_time = Instant::now();
-        loop {
-            let encoder_value = encoder_1.get_value().unwrap();
-            if encoder_value != last_encoder_value {
-                let current_time = Instant::now();
-                let time_since_last_check = current_time.duration_since(last_encoder_time);
-                if time_since_last_check > Duration::from_millis(100) {
-                    {
-                        let mut light = light_1_clone.lock().unwrap();
-                        if encoder_value > last_encoder_value {
-                            let _ = light.take_action(Action::Up, None);
-                        } else {
-                            let _ = light.take_action(Action::Down, None);
-                        }
-                    }
-                    last_encoder_time = Instant::now();
-                }
-                last_encoder_value = encoder_value;
-            }
-            Delay::delay_ms(100u32);
-        }
-    });
-
-    let light_1_clone = light_1.clone();
-    thread::spawn(move || {
-        let mut driver_1 = LedcDriver::new(
-            peripherals.ledc.channel0,
-            LedcTimerDriver::new(
-                peripherals.ledc.timer0,
-                &TimerConfig::new().frequency({ light_1.lock().unwrap() }.freq_Hz.Hz()),
-            )
-            .unwrap(),
-            peripherals.pins.gpio7,
-        ).unwrap();
-        let max_duty = driver_1.get_max_duty();
+        let mut pin_a_2 = peripherals.pins.gpio7;
+        let mut pin_b_2 = peripherals.pins.gpio8;
+        let mut encoders = Vec::from([
+            Encoder::new(peripherals.pcnt0, &mut pin_a_1, &mut pin_b_1).unwrap(),
+            Encoder::new(peripherals.pcnt1, &mut pin_a_2, &mut pin_b_2).unwrap(),
+        ]);
+        let mut last_encoder_values = Vec::from([0i64, 0i64]);
+        let mut last_encoder_times = Vec::from([Instant::now(), Instant::now()]);
         loop {
             {
-                let light_1 = light_1_clone.lock().unwrap();
-
-                let duty_cycle = light_1.get_duty_cycle() * max_duty / 100;
-                let _ = driver_1.set_duty(duty_cycle);
-                println!("Duty cycle: {duty_cycle}");
+                let mut lights = lights_clone.lock().unwrap();
+                for (((light, encoder), last_encoder_time), last_encoder_value) in lights
+                    .iter_mut()
+                    .zip(encoders.iter_mut())
+                    .zip(last_encoder_times.iter_mut())
+                    .zip(last_encoder_values.iter_mut())
+                {
+                    light_update(light, encoder, last_encoder_time, last_encoder_value);
+                }
             }
             Delay::delay_ms(100u32);
         }
     });
+
+    // Update duty cycles if/when needed (if a light Device has been updated)  
+    let lights_clone = lights.clone();
+    thread::spawn(move || {
+        let freqs: Vec<_> = {
+            lights_clone
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|l| l.freq_Hz.Hz())
+                .collect()
+        };
+        let mut drivers = Vec::from([
+            LedcDriver::new(
+                peripherals.ledc.channel0,
+                LedcTimerDriver::new(
+                    peripherals.ledc.timer0,
+                    &TimerConfig::new().frequency(freqs[0]),
+                )
+                .unwrap(),
+                peripherals.pins.gpio9,
+            )
+            .unwrap(),
+            LedcDriver::new(
+                peripherals.ledc.channel1,
+                LedcTimerDriver::new(
+                    peripherals.ledc.timer1,
+                    &TimerConfig::new().frequency(freqs[1]),
+                )
+                .unwrap(),
+                peripherals.pins.gpio10,
+            )
+            .unwrap(),
+        ]);
+        let mut max_duty = Vec::with_capacity(drivers.len());
+        for driver in drivers.iter() {
+            max_duty.push(driver.get_max_duty());
+        }
+        loop {
+            {
+                for ((light, driver), max_duty) in lights_clone
+                    .lock()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(drivers.iter_mut())
+                    .zip(max_duty.iter())
+                {
+                    if light.updated {
+                        let duty_cycle = light.get_duty_cycle() * max_duty / 100;
+                        let _ = driver.set_duty(duty_cycle);
+                        light.updated = false;
+                    }
+                }
+            }
+            Delay::delay_ms(100u32);
+        }
+    });
+
+    let mut server = EspHttpServer::new(&SVC_Configuration::default()).unwrap();
+    server
+        .fn_handler("/", Method::Get, |request| {
+            println!("thing recieved!!!!!!!!!!!!!!!!!!!");
+            println!("request uri: {}", request.uri());
+            let mut response = request.into_ok_response()?;
+            response.write_all("payload!!!!!".as_bytes())?;
+            Ok(())
+        })
+        .unwrap();
+    let lights_clone = lights.clone();
+    server
+        .fn_handler("/status", Method::Get, move |request| {
+            let query = &request.uri()[8..].to_string();
+            let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
+            match query.get("device") {
+                Some(d) => {
+                    let d = d.replace("%20", " ");
+                    for light in lights_clone.lock().unwrap().iter() {
+                        if light.name == d {
+                            let mut response = request.into_ok_response()?;
+                            let _ = response.write_all(&light.to_json().into_bytes()[..]);
+                            return Ok(());
+                        }
+                    }
+                    let _ = exit_early(request, "Device name not found", 422);
+                    return Ok(());
+                }
+                None => {
+                    let _ = exit_early(request, "No Device name given", 422);
+                    return Ok(());
+                }
+            }
+        })
+        .unwrap();
+    let lights_clone = lights.clone();
+    server
+        .fn_handler("/devices", Method::Get, move |request| {
+            let mut lights = HashMap::new();
+            {
+                for light in lights_clone.lock().unwrap().iter() {
+                    lights.insert(light.name.clone(), light.clone());
+                }
+            }
+            let payload = serde_json::json!(lights);
+            let mut response = request.into_ok_response()?;
+            response.write_all(payload.to_string().as_bytes())?;
+            Ok(())
+        })
+        .unwrap();
+
+    loop {
+        println!(
+            "IP info: {:?}",
+            wifi_driver.sta_netif().get_ip_info().unwrap()
+        );
+        sleep(Duration::new(10, 0));
+    }
+}
+
+fn light_update(
+    light: &mut Device,
+    encoder: &mut Encoder,
+    last_encoder_time: &mut Instant,
+    last_encoder_value: &mut i64,
+) {
+    let encoder_value = encoder.get_value().unwrap();
+    if encoder_value != *last_encoder_value {
+        let current_time = Instant::now();
+        let time_since_last_check = current_time.duration_since(*last_encoder_time);
+        if time_since_last_check > Duration::from_millis(100) {
+            {
+                if encoder_value > *last_encoder_value {
+                    let _ = light.take_action(Action::Up, None);
+                    light.updated = true;
+                } else {
+                    let _ = light.take_action(Action::Down, None);
+                    light.updated = true;
+                }
+            }
+            *last_encoder_time = Instant::now();
+        }
+        *last_encoder_value = encoder_value;
+    }
+}
+
+fn exit_early<'a>(
+    request: Request<&mut EspHttpConnection<'a>>,
+    message: &str,
+    code: u16,
+) -> Result<(), HandlerError> {
+    let mut response = request.into_status_response(code)?;
+    let _ = response.write_all(message.as_bytes());
+    Ok(())
 }
 
 #[cfg(not(all(not(feature = "riscv-ulp-hal"), any(esp32, esp32s2, esp32s3))))]
