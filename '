@@ -64,8 +64,8 @@ fn main() {
     let mut wifi_driver = EspWifi::new(peripherals.modem, sys_loop, Some(nvs)).unwrap();
     wifi_driver
         .set_configuration(&Configuration::Client(ClientConfiguration {
-            ssid: "ssid".into(),
-            password: "password".into(),
+            ssid: "ATT5p3XSm9".into(),
+            password: "46b9ap5na4iu".into(),
             ..Default::default()
         }))
         .unwrap();
@@ -210,10 +210,6 @@ fn main() {
     let lights_clone = lights.clone();
     server
         .fn_handler("/status", Method::Get, move |request| {
-            if &request.uri().len() < &8_usize {
-                let _ = exit_early(request, "Bad Status command given", 422);
-                return Ok(());
-            }
             let query = &request.uri()[8..].to_string();
             let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
             match query.get("device") {
@@ -254,18 +250,18 @@ fn main() {
     let lights_clone = lights.clone();
     server
         .fn_handler("/command", Method::Get, move |request| {
-            if &request.uri().len() < &9_usize {
-                let _ = exit_early(request, "Bad Command given", 422);
-                return Ok(());
-            }
+            dbg!("22222222222222 command {}", &request.uri());
             let query = &request.uri()[9..].to_string();
             let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
+            dbg!("33333333333333 {:?}", &query);
             let device = match query.get("device") {
                 Some(d) => {
                     let mut found = None;
                     for light in lights_clone.lock().unwrap().iter() {
+                                dbg!(&d.replace("%20", " ");
+                              dbg!(&light.name);
                         if d.replace("%20", " ") == light.name {
-                            found = Some(light.name.clone());
+                            found = Some(light.clone());
                             break;
                         }
                     }
@@ -273,48 +269,35 @@ fn main() {
                         let _ = exit_early(request, "Bad Device name given", 422);
                         return Ok(());
                     }
-                    found.unwrap()
                 }
                 None => {
-                    let _ = exit_early(request, "Device field not given", 422);
+                    let _ = exit_early(request, "No Device name given", 422);
                     return Ok(());
                 }
             };
+            dbg!(&device);
             let action = match query.get("action") {
-                Some(a) => match Action::from_str(&a) {
-                    Ok(a) => a,
-                    Err(_) => {
-                        let _ = exit_early(request, "Bad Action name given", 422);
-                        return Ok(());
-                    }
-                },
+                Some(a) => {
+                    let a = match Action::from_str(&a) {
+                        Ok(a) => a,
+                        Err(_) => {
+                            let _ = exit_early(request, "Bad Action name given", 422);
+                            return Ok(());
+                        }
+                    };
+                }
                 None => {
                     let _ = exit_early(request, "No Action given", 422);
                     return Ok(());
                 }
             };
-            let target: Option<usize> = match query.get("target") {
-                Some(t_text) => match t_text.parse::<usize>() {
-                    Ok(t_num) => {
-                        if t_num > 7 {
-                            let _ = exit_early(request, "Target must be >= 0 & < 8", 422);
-                            return Ok(());
-                        }
-                        Some(t_num)
-                    }
-                    Err(_) => {
-                        if t_text != &"" {
-                            let _ = exit_early(request, "Bad Target given", 422);
-                            return Ok(());
-                        }
-                        None
-                    }
+            let target = match query.get("target") {
+                Some(t) => {
+                    let t = 
                 },
-                None => None,
-            };
-            for light in lights.lock().unwrap().iter_mut() {
-                if light.name == device {
-                    let _ = light.take_action(action, target);
+                None => {
+                    let _ = exit_early(request, "No Target given, 422);
+                    return Ok(());
                 }
             }
             let mut response = request.into_ok_response()?;
