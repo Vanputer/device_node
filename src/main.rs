@@ -214,7 +214,7 @@ fn main() {
                 let _ = exit_early(request, "Bad Status command given", 422);
                 return Ok(());
             }
-            let query = &request.uri()[8..].to_string();
+            let query = &request.uri()[8..].to_string().to_lowercase();
             let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
             match query.get("device") {
                 Some(d) => {
@@ -264,7 +264,7 @@ fn main() {
                 Some(d) => {
                     let mut found = None;
                     for light in lights_clone.lock().unwrap().iter() {
-                        if d.replace("%20", " ") == light.name {
+                        if d.replace("%20", " ").to_lowercase() == light.name {
                             found = Some(light.name.clone());
                             break;
                         }
@@ -281,7 +281,7 @@ fn main() {
                 }
             };
             let action = match query.get("action") {
-                Some(a) => match Action::from_str(&a) {
+                Some(a) => match Action::from_str(&a.to_lowercase()) {
                     Ok(a) => a,
                     Err(_) => {
                         let _ = exit_early(request, "Bad Action name given", 422);
