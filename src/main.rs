@@ -48,6 +48,8 @@ use std::{
 use device::{Action, Device};
 use encoder::Encoder;
 
+include!("creds.inc");
+
 #[cfg(all(not(feature = "riscv-ulp-hal"), any(esp32, esp32s2, esp32s3)))]
 fn main() {
     //    use anyhow::Context;
@@ -64,8 +66,8 @@ fn main() {
     let mut wifi_driver = EspWifi::new(peripherals.modem, sys_loop, Some(nvs)).unwrap();
     wifi_driver
         .set_configuration(&Configuration::Client(ClientConfiguration {
-            ssid: "ssid".into(),
-            password: "password".into(),
+            ssid: SSID.into(),
+            password: PASSWORD.into(),
             ..Default::default()
         }))
         .unwrap();
