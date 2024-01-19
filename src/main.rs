@@ -48,7 +48,7 @@ use std::{
 use device::{Action, Device};
 use encoder::Encoder;
 
-include!("creds.inc");
+include!("credentials.inc");
 
 #[cfg(all(not(feature = "riscv-ulp-hal"), any(esp32, esp32s2, esp32s3)))]
 fn main() {
