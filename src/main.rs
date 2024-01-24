@@ -44,6 +44,7 @@ use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
+use uuid::Uuid;
 
 use device::{Action, Device};
 use encoder::Encoder;
@@ -81,6 +82,7 @@ fn main() {
 
     let lights = Arc::new(Mutex::new(Vec::from([
         Device {
+            uuid: Uuid::from_u128(0x584507902e74f44b67902b90775abda),
             name: "bedroom light".to_string(),
             action: Action::Off,
             available_actions: Vec::from([
@@ -94,9 +96,11 @@ fn main() {
             duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
             target: 0,
             freq_Hz: 1000,
+            reversed: false,
             updated: true,
         },
         Device {
+            uuid: Uuid::from_u128(0x36bc0fe1b00742809ec6b36c8bc98537),
             name: "kitchen light".to_string(),
             action: Action::Off,
             available_actions: Vec::from([
@@ -110,6 +114,7 @@ fn main() {
             duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
             target: 0,
             freq_Hz: 1000,
+            reversed: false,
             updated: true,
         },
     ])));
@@ -218,23 +223,32 @@ fn main() {
             }
             let query = &request.uri()[8..].to_string().to_lowercase();
             let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
-            match query.get("device") {
-                Some(d) => {
-                    let d = d.replace("%20", " ");
-                    for light in lights_clone.lock().unwrap().iter() {
-                        if light.name == d {
-                            let mut response = request.into_ok_response()?;
-                            let _ = response.write_all(&light.to_json().into_bytes()[..]);
-                            return Ok(());
-                        }
+            if query.get("device").is_some() {
+                let d = query.get("device").unwrap();
+                let d = d.replace("%20", " ");
+                for light in lights_clone.lock().unwrap().iter() {
+                    if light.name == d {
+                        let mut response = request.into_ok_response()?;
+                        let _ = response.write_all(&light.to_json().into_bytes()[..]);
+                        return Ok(());
                     }
-                    let _ = exit_early(request, "Device name not found", 422);
-                    return Ok(());
                 }
-                None => {
-                    let _ = exit_early(request, "No Device name given", 422);
-                    return Ok(());
+                let _ = exit_early(request, "Device name not found", 422);
+                return Ok(());
+            } else if query.get("uuid").is_some() {
+                let u = query.get("uuid").unwrap();
+                for light in lights_clone.lock().unwrap().iter() {
+                    if &light.uuid.to_string().as_str() == u {
+                        let mut response = request.into_ok_response()?;
+                        let _ = response.write_all(&light.to_json().into_bytes()[..]);
+                        return Ok(());
+                    }
                 }
+                let _ = exit_early(request, "Device name not found", 422);
+                return Ok(());
+            } else {
+                let _ = exit_early(request, "No Device name given", 422);
+                return Ok(());
             }
         })
         .unwrap();
@@ -262,26 +276,6 @@ fn main() {
             }
             let query = &request.uri()[9..].to_string();
             let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
-            let device = match query.get("device") {
-                Some(d) => {
-                    let mut found = None;
-                    for light in lights_clone.lock().unwrap().iter() {
-                        if d.replace("%20", " ").to_lowercase() == light.name {
-                            found = Some(light.name.clone());
-                            break;
-                        }
-                    }
-                    if found.is_none() {
-                        let _ = exit_early(request, "Bad Device name given", 422);
-                        return Ok(());
-                    }
-                    found.unwrap()
-                }
-                None => {
-                    let _ = exit_early(request, "Device field not given", 422);
-                    return Ok(());
-                }
-            };
             let action = match query.get("action") {
                 Some(a) => match Action::from_str(&a.to_lowercase()) {
                     Ok(a) => a,
@@ -314,14 +308,34 @@ fn main() {
                 },
                 None => None,
             };
-            for light in lights.lock().unwrap().iter_mut() {
-                if light.name == device {
-                    let _ = light.take_action(action, target);
+            match query.get("uuid") {
+                Some(u) => {
+                    dbg!(&u);
+                    match Uuid::parse_str(u) {
+                        Ok(uuid) => {
+                            dbg!(&uuid);
+                            for light in lights_clone.lock().unwrap().iter_mut() {
+                                if uuid == light.uuid {
+                                    let _ = light.take_action(action, target);
+                                    let mut response = request.into_ok_response()?;
+                                    response.write_all(&light.to_json().into_bytes());
+                                    return Ok(());
+                                }
+                            }
+                            let _ = exit_early(request, "Uuid not found among devices", 422);
+                            return Ok(());
+                        },
+                        Err(_) => {
+                            let _ = exit_early(request, "Bad Uuid given", 422);
+                            return Ok(());
+                        }
+                    }
                 }
-            }
-            let mut response = request.into_ok_response()?;
-            response.write_all("Command!!!!!".as_bytes())?;
-            Ok(())
+                None => {
+                    let _ = exit_early(request, "Uuid field not given", 422);
+                    return Ok(());
+                }
+            };
         })
         .unwrap();
 
