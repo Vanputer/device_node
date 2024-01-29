@@ -90,7 +90,7 @@ fn main() {
                 Action::Off,
                 Action::Up,
                 Action::Down,
-                Action::Set,
+                Action::Set { target: 0 },
             ]),
             default_target: 3,
             duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
@@ -108,7 +108,7 @@ fn main() {
                 Action::Off,
                 Action::Up,
                 Action::Down,
-                Action::Set,
+                Action::Set { target: 0 },
             ]),
             default_target: 3,
             duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
@@ -262,6 +262,7 @@ fn main() {
                 }
             }
             let payload = serde_json::json!(lights);
+            dbg!(&payload);
             let mut response = request.into_ok_response()?;
             response.write_all(payload.to_string().as_bytes())?;
             Ok(())
@@ -276,19 +277,6 @@ fn main() {
             }
             let query = &request.uri()[9..].to_string();
             let query: HashMap<_, _> = querystring::querify(query).into_iter().collect();
-            let action = match query.get("action") {
-                Some(a) => match Action::from_str(&a.to_lowercase()) {
-                    Ok(a) => a,
-                    Err(_) => {
-                        let _ = exit_early(request, "Bad Action name given", 422);
-                        return Ok(());
-                    }
-                },
-                None => {
-                    let _ = exit_early(request, "No Action given", 422);
-                    return Ok(());
-                }
-            };
             let target: Option<usize> = match query.get("target") {
                 Some(t_text) => match t_text.parse::<usize>() {
                     Ok(t_num) => {
@@ -308,6 +296,19 @@ fn main() {
                 },
                 None => None,
             };
+            let action = match query.get("action") {
+                Some(a) => match Action::from_str(&a.to_lowercase(), target) {
+                    Ok(a) => a,
+                    Err(_) => {
+                        let _ = exit_early(request, "Bad Action name given", 422);
+                        return Ok(());
+                    }
+                },
+                None => {
+                    let _ = exit_early(request, "No Action given", 422);
+                    return Ok(());
+                }
+            };
             match query.get("uuid") {
                 Some(u) => {
                     dbg!(&u);
@@ -316,7 +317,7 @@ fn main() {
                             dbg!(&uuid);
                             for light in lights_clone.lock().unwrap().iter_mut() {
                                 if uuid == light.uuid {
-                                    let _ = light.take_action(action, target);
+                                    let _ = light.take_action(action);
                                     let mut response = request.into_ok_response()?;
                                     response.write_all(&light.to_json().into_bytes());
                                     return Ok(());
@@ -361,10 +362,10 @@ fn light_update(
         if time_since_last_check > Duration::from_millis(100) {
             {
                 if encoder_value > *last_encoder_value {
-                    let _ = light.take_action(Action::Up, None);
+                    let _ = light.take_action(Action::Up);
                     light.updated = true;
                 } else {
-                    let _ = light.take_action(Action::Down, None);
+                    let _ = light.take_action(Action::Down);
                     light.updated = true;
                 }
             }
