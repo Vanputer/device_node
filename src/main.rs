@@ -196,6 +196,7 @@ fn main() {
                     .zip(max_duty.iter())
                 {
                     if light.updated {
+                        println!("Updating: {:?}", light);
                         let duty_cycle = light.get_duty_cycle() * max_duty / 100;
                         let _ = driver.set_duty(duty_cycle);
                         light.updated = false;
@@ -262,7 +263,6 @@ fn main() {
                 }
             }
             let payload = serde_json::json!(lights);
-            dbg!(&payload);
             let mut response = request.into_ok_response()?;
             response.write_all(payload.to_string().as_bytes())?;
             Ok(())
@@ -311,15 +311,13 @@ fn main() {
             };
             match query.get("uuid") {
                 Some(u) => {
-                    dbg!(&u);
                     match Uuid::parse_str(u) {
                         Ok(uuid) => {
-                            dbg!(&uuid);
                             for light in lights_clone.lock().unwrap().iter_mut() {
                                 if uuid == light.uuid {
                                     let _ = light.take_action(action);
                                     let mut response = request.into_ok_response()?;
-                                    response.write_all(&light.to_json().into_bytes());
+                                    let _ = response.write_all(&light.to_json().into_bytes());
                                     return Ok(());
                                 }
                             }
