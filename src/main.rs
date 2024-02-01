@@ -46,7 +46,7 @@ use std::{
 };
 use uuid::Uuid;
 
-use device::{Action, Device};
+use device::{Action, Device, DeviceType};
 use encoder::Encoder;
 
 include!("credentials.inc");
@@ -98,6 +98,7 @@ fn main() {
             duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
             target: 0,
             freq_Hz: 1000,
+            device_type: Some(DeviceType::Light),
             reversed: false,
             updated: true,
         },
@@ -118,6 +119,7 @@ fn main() {
             duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
             target: 0,
             freq_Hz: 1000,
+            device_type: Some(DeviceType::Light),
             reversed: false,
             updated: true,
         },
