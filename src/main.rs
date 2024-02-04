@@ -39,6 +39,7 @@ use querystring;
 use serde_json;
 use std::{
     collections::HashMap,
+    default::Default,
     sync::{Arc, Mutex},
     thread,
     thread::sleep,
@@ -84,44 +85,12 @@ fn main() {
         Device {
             uuid: Uuid::from_u128(0x584507902e74f44b67902b90775abda),
             name: "bedroom light".to_string(),
-            action: Action::Off,
-            available_actions: Vec::from([
-                Action::On,
-                Action::Off,
-                Action::Up,
-                Action::Down,
-                Action::Min,
-                Action::Max,
-                Action::Set { target: 0 },
-            ]),
-            default_target: 3,
-            duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
-            target: 0,
-            freq_Hz: 1000,
-            device_type: Some(DeviceType::Light),
-            reversed: false,
-            updated: true,
+            ..Default::default()
         },
         Device {
             uuid: Uuid::from_u128(0x36bc0fe1b00742809ec6b36c8bc98537),
             name: "kitchen light".to_string(),
-            action: Action::Off,
-            available_actions: Vec::from([
-                Action::On,
-                Action::Off,
-                Action::Up,
-                Action::Down,
-                Action::Min,
-                Action::Max,
-                Action::Set { target: 0 },
-            ]),
-            default_target: 3,
-            duty_cycles: [0, 2, 4, 8, 16, 32, 64, 96],
-            target: 0,
-            freq_Hz: 1000,
-            device_type: Some(DeviceType::Light),
-            reversed: false,
-            updated: true,
+            ..Default::default()
         },
     ])));
 
